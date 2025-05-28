@@ -1,0 +1,38 @@
+name: arfit_app
+description: Fitness app by Mohammed
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.1.0
+  table_calendar: ^3.0.9  
+  fl_chart: ^0.63.0
+  firebase_core: ^2.27.0
+  firebase_auth: ^4.17.4
+  cloud_firestore: ^4.17.5
+  provider: ^6.0.5
+  image_picker: ^1.0.4
+  firebase_storage: ^11.6.7
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo/arfit_logo.png
+    - assets/fonts/Exo-Regular.ttf
+
+  fonts:
+    - family: Exo
+      fonts:
+        - asset: assets/fonts/Exo-Regular.ttf
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo/arfit_icon.png"
