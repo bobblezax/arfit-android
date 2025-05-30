@@ -1,7 +1,10 @@
+// workout.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'tutorial.dart';
 import 'metrics.dart';
+// Import the new selection screen instead of PoseDetectorView directly
+import 'workout_tracking_selection_screen.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final String exercise;
@@ -54,8 +57,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               const SizedBox(height: 8),
               Text('Weight: ${widget.weight} lbs',
                   style: GoogleFonts.exo(color: Colors.white, fontSize: 16)),
-              Text('Reps: ${widget.reps}', style: GoogleFonts.exo(color: Colors.white)),
-              Text('Sets: ${widget.sets}', style: GoogleFonts.exo(color: Colors.white)),
+              Text('Reps: ${widget.reps}',
+                  style: GoogleFonts.exo(color: Colors.white)),
+              Text('Sets: ${widget.sets}',
+                  style: GoogleFonts.exo(color: Colors.white)),
               const SizedBox(height: 20),
               Text(
                 'Completed Sets: $completedSets/${widget.sets}',
@@ -94,11 +99,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               Text('Rest: $restSeconds seconds',
                   style: GoogleFonts.exo(color: Colors.white, fontSize: 16)),
               const SizedBox(height: 30),
+
+              // ✅ Enable Form Tracking button now navigates to a selection screen
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const MetricsScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const WorkoutTrackingSelectionScreen(), // Navigate to selection screen
+                    ),
                   );
                 },
                 icon: const Icon(Icons.fitness_center),
@@ -111,7 +120,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                   minimumSize: const Size.fromHeight(50),
                 ),
               ),
+
               const SizedBox(height: 16),
+
+              // ✅ Watch Tutorial Video button
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.push(

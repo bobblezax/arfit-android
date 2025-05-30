@@ -15,7 +15,7 @@ import 'screens/create_account.dart';
 import 'screens/create_account_step2.dart';
 import 'screens/dashboard.dart';
 import 'screens/home.dart';
-import 'screens/profile.dart';
+import 'screens/profile.dart'; 
 import 'screens/all_workouts.dart';
 import 'screens/add_workout.dart';
 import 'screens/calendar.dart';
