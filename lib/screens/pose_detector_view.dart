@@ -540,9 +540,7 @@ class PosePainter extends CustomPainter {
       double y = landmark.y * size.height / effectiveImageHeight;
 
       // Adjust x-coordinate for front camera mirror effect
-      if (cameraLensDirection == CameraLensDirection.front) {
-        x = size.width - x;
-      }
+
       points[type] = Offset(x, y);
     });
 
