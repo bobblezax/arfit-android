@@ -89,104 +89,133 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
     }
   }
 
-  Future<void> _processCameraImage(CameraImage image) async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized || _isDetecting) {
-      if (kDebugMode) {
-        if (_cameraController == null) print("Skipping frame: Camera controller is null.");
-        else if (!_cameraController!.value.isInitialized) print("Skipping frame: Camera controller not initialized.");
-        else if (_isDetecting) print("Skipping frame: Already detecting a pose.");
+Future<void> _processCameraImage(CameraImage image) async {
+  if (_isDetecting || !mounted) return; // Throttle processing
+  _isDetecting = true;
+
+  if (_cameraController == null || !_cameraController!.value.isInitialized) {
+    await Future.delayed(const Duration(milliseconds: 100));
+    _isDetecting = false;
+    return;
+  }
+
+  try {
+    // Function to convert YUV_420_888 to a contiguous Uint8List
+    Uint8List _convertYUV420ToNV21(CameraImage image) {
+      final int width = image.width;
+      final int height = image.height;
+
+      // Calculate expected sizes
+      final int ySize = width * height; // Y plane size
+      final int uvSize = (width ~/ 2) * (height ~/ 2); // U and V planes (subsampled)
+
+      final Uint8List yuvBytes = Uint8List(ySize + 2 * uvSize); // NV21 format: Y + interleaved UV
+
+      // Y plane: Copy directly, accounting for stride
+      int index = 0;
+      final yPlane = image.planes[0];
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+          yuvBytes[index++] = yPlane.bytes[y * yPlane.bytesPerRow + x];
+        }
       }
+
+      // UV planes: Interleave U and V (NV21 format expects VU order)
+      final uPlane = image.planes[1];
+      final vPlane = image.planes[2];
+      for (int y = 0; y < height ~/ 2; y++) {
+        for (int x = 0; x < width ~/ 2; x++) {
+          // NV21: VU interleaved
+          yuvBytes[index++] = vPlane.bytes[y * vPlane.bytesPerRow + x];
+          yuvBytes[index++] = uPlane.bytes[y * uPlane.bytesPerRow + x];
+        }
+      }
+
+      return yuvBytes;
+    }
+
+    // Convert image to NV21 format
+    final bytes = _convertYUV420ToNV21(image);
+
+    final camera = _cameraController!.description;
+    final imageRotation =
+        InputImageRotationValue.fromRawValue(camera.sensorOrientation) ??
+            InputImageRotation.rotation0deg;
+
+    // Use NV21 format for Android
+    const inputImageFormat = InputImageFormat.nv21;
+
+    // Log image information for debugging
+    if (kDebugMode) {
+      print('--- Camera Image Info ---');
+      print('Image Format Raw: ${image.format.raw}');
+      print('Image Width: ${image.width}, Height: ${image.height}');
+      if (image.planes.isNotEmpty) {
+        print('Bytes per Row (Y Plane): ${image.planes[0].bytesPerRow}');
+        print('Bytes per Row (U Plane): ${image.planes[1].bytesPerRow}');
+        print('Bytes per Row (V Plane): ${image.planes[2].bytesPerRow}');
+      }
+      print('Camera Sensor Orientation: ${camera.sensorOrientation}');
+      print('Camera Lens Direction: ${camera.lensDirection}');
+      print('InputImageRotation: $imageRotation');
+      print('InputImageFormat (used): $inputImageFormat');
+      print('Total bytes length: ${bytes.length}');
+      print('Expected bytes for NV21: ${image.width * image.height * 3 ~/ 2}');
+      print('--- End Camera Image Info ---');
+    }
+
+    // Verify byte length
+    final expectedSize = image.width * image.height * 3 ~/ 2;
+    if (bytes.length != expectedSize) {
+      print('! Byte length mismatch: got ${bytes.length}, expected $expectedSize');
+      _isDetecting = false;
       return;
     }
 
-    _isDetecting = true;
+    final inputImage = InputImage.fromBytes(
+      bytes: bytes,
+      metadata: InputImageMetadata(
+        rotation: imageRotation,
+        format: inputImageFormat,
+        bytesPerRow: image.planes[0].bytesPerRow, // Y plane stride
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+      ),
+    );
 
-    try {
-      final WriteBuffer allBytes = WriteBuffer();
-      for (final plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
-      }
-      final bytes = allBytes.done().buffer.asUint8List();
+    final poses = await _poseDetector.processImage(inputImage);
 
-      final camera = _cameraController!.description;
-      final imageRotation =
-          InputImageRotationValue.fromRawValue(camera.sensorOrientation) ??
-              InputImageRotation.rotation0deg;
-
-      InputImageFormat inputImageFormat;
-      if (defaultTargetPlatform == TargetPlatform.iOS) {
-        inputImageFormat = InputImageFormat.bgra8888;
-      } else {
-        inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21;
-      }
-
-      if (kDebugMode) {
-        print('--- Camera Image Info ---');
-        print('Image Format Raw: ${image.format.raw}');
-        print('Image Width: ${image.width}, Height: ${image.height}');
-        if (image.planes.isNotEmpty) {
-          print('Bytes per Row (Plane 0): ${image.planes[0].bytesPerRow}');
-        } else {
-          print('No image planes available.');
-        }
-        print('Camera Sensor Orientation: ${camera.sensorOrientation}');
-        print('Camera Lens Direction: ${camera.lensDirection}');
-        print('InputImageRotation: ${imageRotation}');
-        print('InputImageFormat (used): ${inputImageFormat}');
-        print('Total bytes length: ${bytes.length}');
-        if (inputImageFormat == InputImageFormat.bgra8888) {
-          print('Expected bytes for BGRA8888: ${image.width * image.height * 4}');
-        } else if (inputImageFormat == InputImageFormat.nv21 || inputImageFormat == InputImageFormat.yv12) {
-          print('Expected bytes for YUV_420_888: ${image.width * image.height * 3 ~/ 2}');
-        }
-        print('--- End Camera Image Info ---');
-      }
-
-      final inputImage = InputImage.fromBytes(
-        bytes: bytes,
-        metadata: InputImageMetadata(
-          rotation: imageRotation,
-          format: inputImageFormat,
-          bytesPerRow: image.planes[0].bytesPerRow,
-          size: Size(image.width.toDouble(), image.height.toDouble()),
+    if (poses.isNotEmpty) {
+      final pose = poses.first;
+      _customPaint = CustomPaint(
+        painter: PosePainter(
+          pose,
+          Size(image.width.toDouble(), image.height.toDouble()),
+          camera.lensDirection,
+          imageRotation,
         ),
       );
-
-      final poses = await _poseDetector.processImage(inputImage);
-
-      if (poses.isNotEmpty) {
-        final pose = poses.first;
-        _customPaint = CustomPaint(
-          painter: PosePainter(
-            pose,
-            // Pass the image size as received from the camera
-            Size(image.width.toDouble(), image.height.toDouble()),
-            camera.lensDirection,
-            imageRotation, // Pass image rotation to the painter
-          ),
-        );
-        if (kDebugMode) print("Pose detected. Updating custom paint.");
-        _updateWorkoutState(pose);
-      } else {
-        _customPaint = null;
-        _feedback = "No pose detected. Adjust your position.";
-        if (kDebugMode) print("No pose detected.");
-      }
-
-      if (mounted) {
-        setState(() {});
-      }
-    } catch (e) {
-      print("Error processing image: $e");
-      if (mounted) {
-        setState(() {
-          _feedback = "Error processing image: $e";
-        });
-      }
-    } finally {
-      _isDetecting = false;
+      if (kDebugMode) print("Pose detected. Updating custom paint.");
+      _updateWorkoutState(pose);
+    } else {
+      _customPaint = null;
+      _feedback = "No pose detected. Adjust your position.";
+      if (kDebugMode) print("No pose detected.");
     }
+
+    if (mounted) {
+      setState(() {});
+    }
+  } catch (e) {
+    print("Error processing image: $e");
+    if (mounted) {
+      setState(() {
+        _feedback = "Error processing image: $e";
+      });
+    }
+  } finally {
+    _isDetecting = false;
   }
+}
 
   PoseLandmark? _getLandmark(Pose pose, PoseLandmarkType type) {
     return pose.landmarks[type];
