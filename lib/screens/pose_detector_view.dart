@@ -20,14 +20,13 @@ enum WorkoutType {
 class PoseDetectorView extends StatefulWidget {
   final WorkoutType workoutType; // Pass the selected workout type
 
-  const PoseDetectorView({super.key, this.workoutType = WorkoutType.none});
+  const PoseDetectorView({Key? key, this.workoutType = WorkoutType.none}) : super(key: key);
 
   @override
   State<PoseDetectorView> createState() => _PoseDetectorViewState();
 }
 
-class _PoseDetectorViewState extends State<PoseDetectorView> with SingleTickerProviderStateMixin {
-  DateTime _lastRepTime = DateTime.now();
+class _PoseDetectorViewState extends State<PoseDetectorView> {
   CameraController? _cameraController;
   late final PoseDetector _poseDetector;
   bool _isDetecting = false;
@@ -36,12 +35,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> with SingleTickerPr
   String _stage = ""; // "up" or "down" for reps
   String _feedback = "Initializing..."; // Initial feedback state
   String? _error;
-  final Stopwatch _stopwatch = Stopwatch(); // Duration tracker
-  double _calories = 0.0; // Calorie estimation
-  double _feedbackOpacity = 1.0; // For fade animation
-  int _lastRepCount = 0; // To detect rep changes for animation
-  late AnimationController _animationController; // For bounce animation
-  late Animation<double> _bounceAnimation;
 
   @override
   void initState() {
@@ -49,124 +42,55 @@ class _PoseDetectorViewState extends State<PoseDetectorView> with SingleTickerPr
     _poseDetector = PoseDetector(
       options: PoseDetectorOptions(
         mode: PoseDetectionMode.stream,
-        model: PoseDetectionModel.accurate,
+        model: PoseDetectionModel.accurate, // Using accurate model
       ),
     );
     _initializeCamera();
-    _stopwatch.start();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
-    );
   }
 
   Future<void> _initializeCamera() async {
     try {
       final status = await Permission.camera.request();
       if (status != PermissionStatus.granted) {
-        if (mounted) {
-          setState(() => _error = "Camera permission denied");
-        }
+        setState(() => _error = "Camera permission denied");
         return;
       }
 
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        if (mounted) {
-          setState(() => _error = "Camera failed to load");
-        }
+        setState(() => _error = "No cameras found on device");
         return;
       }
 
-      // Select front camera, fallback to first available camera
+      // Prioritize front camera for user-facing pose detection
       final camera = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () {
-          // Explicitly return the first camera or throw an error if empty
-          if (cameras.isNotEmpty) return cameras.first;
-          throw Exception('No cameras available');
-        },
+        orElse: () => cameras.first, // Fallback to any camera if front is not found
       );
 
       _cameraController = CameraController(
         camera,
-        ResolutionPreset.medium,
+        ResolutionPreset.medium, // Using medium resolution
         enableAudio: false,
       );
 
       await _cameraController!.initialize();
-      
+      // Start image stream only after camera is initialized successfully
       if (_cameraController!.value.isInitialized) {
         await _cameraController!.startImageStream(_processCameraImage);
-        if (mounted) {
-          setState(() => _feedback = "Stand in frame to begin.");
-        }
+        setState(() => _feedback = "Stand in frame to begin.");
       } else {
-        if (mounted) {
-          setState(() => _error = "Camera failed to initialize.");
-        }
+        setState(() => _error = "Camera failed to initialize.");
       }
 
-      if (mounted) {
-        setState(() => _error = null);
-      }
+      setState(() => _error = null);
     } catch (e) {
-      if (mounted) {
-        setState(() => _error = "Failed to initialize camera: $e");
-      }
+      setState(() => _error = "Failed to initialize camera: $e");
     }
   }
 
-// Add these helper functions in _PoseDetectorViewState class
-Uint8List _concatenatePlanes(List<Plane> planes) {
-  final WriteBuffer allBytes = WriteBuffer();
-  for (final Plane plane in planes) {
-    allBytes.putUint8List(
-      Uint8List.view(plane.bytes.buffer, plane.bytes.offsetInBytes, plane.bytes.lengthInBytes),
-    );
-  }
-  return allBytes.done().buffer.asUint8List();
-}
-
-Uint8List _convertYUV420ToNV21(CameraImage image) {
-  final int width = image.width;
-  final int height = image.height;
-
-  // Calculate expected sizes
-  final int ySize = width * height; // Y plane size
-  final int uvSize = (width ~/ 2) * (height ~/ 2); // U and V planes (subsampled)
-
-  final Uint8List yuvBytes = Uint8List(ySize + 2 * uvSize); // NV21 format: Y + interleaved UV
-
-  // Y plane: Copy directly, accounting for stride
-  int index = 0;
-  final yPlane = image.planes[0];
-  for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width; x++) {
-      yuvBytes[index++] = yPlane.bytes[y * yPlane.bytesPerRow + x];
-    }
-  }
-
-  // UV planes: Interleave U and V (NV21 format expects VU order)
-  final uPlane = image.planes[1];
-  final vPlane = image.planes[2];
-  for (int y = 0; y < height ~/ 2; y++) {
-    for (int x = 0; x < width ~/ 2; x++) {
-      // NV21: VU interleaved
-      yuvBytes[index++] = vPlane.bytes[y * vPlane.bytesPerRow + x];
-      yuvBytes[index++] = uPlane.bytes[y * uPlane.bytesPerRow + x];
-    }
-  }
-
-  return yuvBytes;
-}
-
-// Ensure _processCameraImage uses these functions (this is the reverted version from my previous response)
 Future<void> _processCameraImage(CameraImage image) async {
-  if (_isDetecting || !mounted) return;
+  if (_isDetecting || !mounted) return; // Throttle processing
   _isDetecting = true;
 
   if (_cameraController == null || !_cameraController!.value.isInitialized) {
@@ -176,6 +100,51 @@ Future<void> _processCameraImage(CameraImage image) async {
   }
 
   try {
+    // Function to convert YUV_420_888 to NV21 (Android)
+    Uint8List _convertYUV420ToNV21(CameraImage image) {
+      final int width = image.width;
+      final int height = image.height;
+
+      // Calculate expected sizes
+      final int ySize = width * height; // Y plane size
+      final int uvSize = (width ~/ 2) * (height ~/ 2); // U and V planes (subsampled)
+
+      final Uint8List yuvBytes = Uint8List(ySize + 2 * uvSize); // NV21 format: Y + interleaved UV
+
+      // Y plane: Copy directly, accounting for stride
+      int index = 0;
+      final yPlane = image.planes[0];
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+          yuvBytes[index++] = yPlane.bytes[y * yPlane.bytesPerRow + x];
+        }
+      }
+
+      // UV planes: Interleave U and V (NV21 format expects VU order)
+      final uPlane = image.planes[1];
+      final vPlane = image.planes[2];
+      for (int y = 0; y < height ~/ 2; y++) {
+        for (int x = 0; x < width ~/ 2; x++) {
+          // NV21: VU interleaved
+          yuvBytes[index++] = vPlane.bytes[y * vPlane.bytesPerRow + x];
+          yuvBytes[index++] = uPlane.bytes[y * uPlane.bytesPerRow + x];
+        }
+      }
+
+      return yuvBytes;
+    }
+
+    // Function to handle BGRA8888 (iOS)
+    Uint8List _concatenatePlanes(List<Plane> planes) {
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in planes) {
+        allBytes.putUint8List(
+          Uint8List.view(plane.bytes.buffer, plane.bytes.offsetInBytes, plane.bytes.lengthInBytes),
+        );
+      }
+      return allBytes.done().buffer.asUint8List();
+    }
+
     // Determine platform and process image accordingly
     late Uint8List bytes;
     late InputImageFormat inputImageFormat;
@@ -193,28 +162,30 @@ Future<void> _processCameraImage(CameraImage image) async {
       expectedSize = image.width * image.height * 3 ~/ 2; // 1.5 bytes per pixel
     }
 
+    // Log image information for debugging
     if (kDebugMode) {
-      debugPrint('--- Camera Image Info ---');
-      debugPrint('Image Format Raw: ${image.format.raw}');
-      debugPrint('Image Width: ${image.width}, Height: ${image.height}');
+      print('--- Camera Image Info ---');
+      print('Image Format Raw: ${image.format.raw}');
+      print('Image Width: ${image.width}, Height: ${image.height}');
       if (image.planes.isNotEmpty) {
-        debugPrint('Bytes per Row (Plane 0): ${image.planes[0].bytesPerRow}');
+        print('Bytes per Row (Plane 0): ${image.planes[0].bytesPerRow}');
         if (image.planes.length > 1) {
-          debugPrint('Bytes per Row (Plane 1): ${image.planes[1].bytesPerRow}');
-          debugPrint('Bytes per Row (Plane 2): ${image.planes[2].bytesPerRow}');
+          print('Bytes per Row (Plane 1): ${image.planes[1].bytesPerRow}');
+          print('Bytes per Row (Plane 2): ${image.planes[2].bytesPerRow}');
         }
       }
-      debugPrint('Camera Sensor Orientation: ${_cameraController!.description.sensorOrientation}');
-      debugPrint('Camera Lens Direction: ${_cameraController!.description.lensDirection}');
-      debugPrint('InputImageRotation: ${InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation)}');
-      debugPrint('InputImageFormat (used): $inputImageFormat');
-      debugPrint('Total bytes length: ${bytes.length}');
-      debugPrint('Expected bytes: $expectedSize');
-      debugPrint('--- End Camera Image Info ---');
+      print('Camera Sensor Orientation: ${_cameraController!.description.sensorOrientation}');
+      print('Camera Lens Direction: ${_cameraController!.description.lensDirection}');
+      print('InputImageRotation: ${InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation)}');
+      print('InputImageFormat (used): $inputImageFormat');
+      print('Total bytes length: ${bytes.length}');
+      print('Expected bytes: $expectedSize');
+      print('--- End Camera Image Info ---');
     }
 
+    // Verify byte length
     if (bytes.length != expectedSize) {
-      debugPrint('Byte length mismatch: got ${bytes.length}, expected $expectedSize');
+      print('! Byte length mismatch: got ${bytes.length}, expected $expectedSize');
       _isDetecting = false;
       return;
     }
@@ -224,7 +195,7 @@ Future<void> _processCameraImage(CameraImage image) async {
       metadata: InputImageMetadata(
         rotation: InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
         format: inputImageFormat,
-        bytesPerRow: image.planes[0].bytesPerRow,
+        bytesPerRow: image.planes[0].bytesPerRow, // Use Y plane stride for Android, single plane stride for iOS
         size: Size(image.width.toDouble(), image.height.toDouble()),
       ),
     );
@@ -233,13 +204,6 @@ Future<void> _processCameraImage(CameraImage image) async {
 
     if (poses.isNotEmpty) {
       final pose = poses.first;
-      if (pose.landmarks.length < 10) {
-        _customPaint = null;
-        _feedback = "Hold still. Pose unclear.";
-        if (mounted) setState(() {});
-        _isDetecting = false;
-        return;
-      }
       _customPaint = CustomPaint(
         painter: PosePainter(
           pose,
@@ -248,19 +212,19 @@ Future<void> _processCameraImage(CameraImage image) async {
           InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
         ),
       );
-      if (kDebugMode) debugPrint("Pose detected. Updating custom paint.");
+      if (kDebugMode) print("Pose detected. Updating custom paint.");
       _updateWorkoutState(pose);
     } else {
       _customPaint = null;
       _feedback = "No pose detected. Adjust your position.";
-      if (kDebugMode) debugPrint("No pose detected.");
+      if (kDebugMode) print("No pose detected.");
     }
 
     if (mounted) {
       setState(() {});
     }
   } catch (e) {
-    debugPrint("Error processing image: $e");
+    print("Error processing image: $e");
     if (mounted) {
       setState(() {
         _feedback = "Error processing image: $e";
@@ -275,27 +239,20 @@ Future<void> _processCameraImage(CameraImage image) async {
     return pose.landmarks[type];
   }
 
-  double _calculateAngle(PoseLandmark p1, PoseLandmark p2, PoseLandmark p3) {
+  double _calculateAngle(
+      PoseLandmark p1, PoseLandmark p2, PoseLandmark p3) {
     final a = Offset(p1.x, p1.y);
     final b = Offset(p2.x, p2.y);
     final c = Offset(p3.x, p3.y);
-    final radians = atan2(c.dy - b.dy, c.dx - b.dx) - atan2(a.dy - b.dy, a.dx - b.dx);
-    var angle = (radians * 180.0 / pi).abs();
+
+    final radians = atan2(c.dy - b.dy, c.dx - b.dx) -
+        atan2(a.dy - b.dy, a.dx - b.dx);
+    double angle = (radians * 180.0 / pi).abs();
+
     if (angle > 180.0) {
       angle = 360 - angle;
     }
     return angle;
-  }
-
-  void _updateCalories() {
-    const caloriePerRep = {
-      WorkoutType.pushups: 0.5,
-      WorkoutType.bicepCurls: 0.3,
-      WorkoutType.shoulderPress: 0.4,
-      WorkoutType.squats: 0.6,
-    };
-    final caloriesPerRep = caloriePerRep[widget.workoutType] ?? 0.0;
-    _calories = _reps * caloriesPerRep;
   }
 
   void _updateWorkoutState(Pose pose) {
@@ -303,26 +260,6 @@ Future<void> _processCameraImage(CameraImage image) async {
       _feedback = "Error: Workout type not selected. Please restart.";
       return;
     }
-
-    if (mounted) {
-      setState(() {
-        _feedbackOpacity = 0.0;
-      });
-    }
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) {
-        setState(() {
-          _feedbackOpacity = 1.0;
-        });
-      }
-    });
-
-    if (_reps > _lastRepCount) {
-      _animationController.forward().then((_) => _animationController.reverse());
-      _lastRepCount = _reps;
-    }
-
-    _updateCalories();
 
     switch (widget.workoutType) {
       case WorkoutType.pushups:
@@ -365,9 +302,6 @@ Future<void> _processCameraImage(CameraImage image) async {
         _feedback = "Push down!";
       }
       if (leftArmAngle < 90 && rightArmAngle < 90 && _stage == "up") {
-        final now = DateTime.now();
-        if (now.difference(_lastRepTime).inMilliseconds < 800) return;
-        _lastRepTime = now;
         _stage = "down";
         _reps++;
         _feedback = "Push up!";
@@ -395,9 +329,6 @@ Future<void> _processCameraImage(CameraImage image) async {
         _feedback = "Curl up!";
       }
       if (leftArmAngle < 40 && rightArmAngle < 40 && _stage == 'down') {
-        final now = DateTime.now();
-        if (now.difference(_lastRepTime).inMilliseconds < 800) return;
-        _lastRepTime = now;
         _stage = "up";
         _reps++;
         _feedback = "Lower down!";
@@ -425,9 +356,6 @@ Future<void> _processCameraImage(CameraImage image) async {
         _feedback = "Lower weights!";
       }
       if (leftArmAngle < 90 && rightArmAngle < 90 && _stage == "up") {
-        final now = DateTime.now();
-        if (now.difference(_lastRepTime).inMilliseconds < 800) return;
-        _lastRepTime = now;
         _stage = "down";
         _reps++;
         _feedback = "Press up!";
@@ -450,9 +378,6 @@ Future<void> _processCameraImage(CameraImage image) async {
         _feedback = "Squat down!";
       }
       if (kneeAngle < 90 && _stage == "up") {
-        final now = DateTime.now();
-        if (now.difference(_lastRepTime).inMilliseconds < 800) return;
-        _lastRepTime = now;
         _stage = "down";
         _reps++;
         _feedback = "Stand up!";
@@ -462,94 +387,10 @@ Future<void> _processCameraImage(CameraImage image) async {
     }
   }
 
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.toString().padLeft(2, '0');
-    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
-  }
-
-  Future<bool> _onPopInvoked() async {
-    _stopwatch.stop();
-    _updateCalories();
-    if (mounted) {
-      setState(() {});
-    }
-    if (kDebugMode) {
-      debugPrint('--- Workout Summary Data ---');
-      debugPrint('Workout Type: ${widget.workoutType.toString().split('.').last.toUpperCase()}');
-      debugPrint('Reps: $_reps');
-      debugPrint('Duration: ${_formatDuration(_stopwatch.elapsed)}');
-      debugPrint('Calories: ${_calories.toStringAsFixed(1)} kcal');
-      debugPrint('--- End Workout Summary Data ---');
-    }
-
-    final shouldExit = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: const Text(
-          'Workout Summary',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        content: Container(
-          constraints: const BoxConstraints(maxHeight: 200),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Workout: ${widget.workoutType.toString().split('.').last.toUpperCase()}',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Reps: $_reps',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Duration: ${_formatDuration(_stopwatch.elapsed)}',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Calories Burned: ${_calories.toStringAsFixed(1)} kcal',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _stopwatch.start();
-              Navigator.of(context).pop(false);
-            },
-            child: const Text(
-              'Continue',
-              style: TextStyle(color: Colors.cyanAccent),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text(
-              'Exit',
-              style: TextStyle(color: Colors.cyanAccent),
-            ),
-          ),
-        ],
-      ),
-    );
-    return shouldExit ?? false;
-  }
-
   @override
   void dispose() {
     _cameraController?.dispose();
     _poseDetector.close();
-    _animationController.dispose();
     super.dispose();
   }
 
@@ -575,130 +416,92 @@ Future<void> _processCameraImage(CameraImage image) async {
       );
     }
 
-    return PopScope(
-      canPop: false, // Prevent default pop until dialog is resolved
-      onPopInvoked: (didPop) async {
-        if (didPop) return; // Skip if already popped
-        final shouldExit = await _onPopInvoked();
-        if (shouldExit && mounted) {
-          Navigator.of(context).pop();
-        }
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('${widget.workoutType.toString().split('.').last.toUpperCase()} Tracker'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () async {
-              final shouldExit = await _onPopInvoked();
-              if (shouldExit && mounted) {
-                Navigator.of(context).pop();
-              }
-            },
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.workoutType.toString().split('.').last.toUpperCase()} Tracker'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context);
+          },
+        ),
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: AspectRatio(
+              aspectRatio: _cameraController!.value.aspectRatio,
+              child: CameraPreview(_cameraController!),
+            ),
           ),
-        ),
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: AspectRatio(
-                aspectRatio: _cameraController!.value.aspectRatio,
-                child: CameraPreview(_cameraController!),
-              ),
+          // Skeletal overlay
+          if (_customPaint != null)
+            Positioned.fill( // Ensure CustomPaint fills the screen
+              child: _customPaint!,
             ),
-            if (_customPaint != null)
-              Positioned.fill(
-                child: _customPaint!,
+          // Feedback text
+          Positioned(
+            bottom: 100,
+            left: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(8),
               ),
-            Positioned(
-              bottom: 100,
-              left: 20,
-              right: 20,
-              child: AnimatedOpacity(
-                opacity: _feedbackOpacity,
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _feedback,
-                    style: const TextStyle(
-                      color: Colors.yellow,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+              child: Text(
+                _feedback,
+                style: const TextStyle(
+                  color: Colors.yellow,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
+                textAlign: TextAlign.center,
               ),
             ),
-            Positioned(
-              bottom: 30,
-              left: 20,
-              child: AnimatedBuilder(
-                animation: _bounceAnimation,
-                builder: (context, child) => Transform.scale(
-                  scale: _bounceAnimation.value,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'Reps: $_reps',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+          ),
+          // Reps counter
+          Positioned(
+            bottom: 30,
+            left: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Reps: $_reps',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            Positioned(
-              bottom: 30,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Time: ${_formatDuration(_stopwatch.elapsed)}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+          ),
+           // Stage indicator
+          Positioned(
+            top: 50,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _stage.toUpperCase(),
+                style: TextStyle(
+                  color: _stage == 'up' || _stage == 'down' ? Colors.greenAccent : Colors.redAccent,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            Positioned(
-              top: 50,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _stage.toUpperCase(),
-                  style: TextStyle(
-                    color: _stage == 'up' || _stage == 'down' ? Colors.greenAccent : Colors.redAccent,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -719,18 +522,15 @@ class PosePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-      final paint = Paint()
-        ..shader = LinearGradient(
-        colors: [Colors.blueAccent, Colors.purpleAccent],
-       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-        ..strokeWidth = 5.0
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke;
+    final paint = Paint()
+      ..color = Colors.red // Keep red for testing
+      ..strokeWidth = 8.0
+      ..style = PaintingStyle.stroke;
 
-      final pointPaint = Paint()
-        ..color = Colors.cyanAccent
-        ..strokeWidth = 10.0
-        ..style = PaintingStyle.fill;
+    final pointPaint = Paint()
+      ..color = Colors.yellow // Keep yellow for testing
+      ..strokeWidth = 12.0
+      ..style = PaintingStyle.fill;
 
     // Remove the temporary purple circle once the skeletal overlay is correct
     // canvas.drawCircle(Offset(size.width / 2, size.height / 2), 30.0, Paint()..color = Colors.purple);
