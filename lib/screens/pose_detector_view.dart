@@ -100,7 +100,7 @@ Future<void> _processCameraImage(CameraImage image) async {
   }
 
   try {
-    // Function to convert YUV_420_888 to a contiguous Uint8List
+    // Function to convert YUV_420_888 to NV21 (Android)
     Uint8List _convertYUV420ToNV21(CameraImage image) {
       final int width = image.width;
       final int height = image.height;
@@ -134,16 +134,33 @@ Future<void> _processCameraImage(CameraImage image) async {
       return yuvBytes;
     }
 
-    // Convert image to NV21 format
-    final bytes = _convertYUV420ToNV21(image);
+    // Function to handle BGRA8888 (iOS)
+    Uint8List _concatenatePlanes(List<Plane> planes) {
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in planes) {
+        allBytes.putUint8List(
+          Uint8List.view(plane.bytes.buffer, plane.bytes.offsetInBytes, plane.bytes.lengthInBytes),
+        );
+      }
+      return allBytes.done().buffer.asUint8List();
+    }
 
-    final camera = _cameraController!.description;
-    final imageRotation =
-        InputImageRotationValue.fromRawValue(camera.sensorOrientation) ??
-            InputImageRotation.rotation0deg;
+    // Determine platform and process image accordingly
+    late Uint8List bytes;
+    late InputImageFormat inputImageFormat;
+    late int expectedSize;
 
-    // Use NV21 format for Android
-    const inputImageFormat = InputImageFormat.nv21;
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      // iOS: Use BGRA8888
+      inputImageFormat = InputImageFormat.bgra8888;
+      bytes = _concatenatePlanes(image.planes);
+      expectedSize = image.width * image.height * 4; // 4 bytes per pixel
+    } else {
+      // Android: Convert YUV_420_888 to NV21
+      inputImageFormat = InputImageFormat.nv21;
+      bytes = _convertYUV420ToNV21(image);
+      expectedSize = image.width * image.height * 3 ~/ 2; // 1.5 bytes per pixel
+    }
 
     // Log image information for debugging
     if (kDebugMode) {
@@ -151,21 +168,22 @@ Future<void> _processCameraImage(CameraImage image) async {
       print('Image Format Raw: ${image.format.raw}');
       print('Image Width: ${image.width}, Height: ${image.height}');
       if (image.planes.isNotEmpty) {
-        print('Bytes per Row (Y Plane): ${image.planes[0].bytesPerRow}');
-        print('Bytes per Row (U Plane): ${image.planes[1].bytesPerRow}');
-        print('Bytes per Row (V Plane): ${image.planes[2].bytesPerRow}');
+        print('Bytes per Row (Plane 0): ${image.planes[0].bytesPerRow}');
+        if (image.planes.length > 1) {
+          print('Bytes per Row (Plane 1): ${image.planes[1].bytesPerRow}');
+          print('Bytes per Row (Plane 2): ${image.planes[2].bytesPerRow}');
+        }
       }
-      print('Camera Sensor Orientation: ${camera.sensorOrientation}');
-      print('Camera Lens Direction: ${camera.lensDirection}');
-      print('InputImageRotation: $imageRotation');
+      print('Camera Sensor Orientation: ${_cameraController!.description.sensorOrientation}');
+      print('Camera Lens Direction: ${_cameraController!.description.lensDirection}');
+      print('InputImageRotation: ${InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation)}');
       print('InputImageFormat (used): $inputImageFormat');
       print('Total bytes length: ${bytes.length}');
-      print('Expected bytes for NV21: ${image.width * image.height * 3 ~/ 2}');
+      print('Expected bytes: $expectedSize');
       print('--- End Camera Image Info ---');
     }
 
     // Verify byte length
-    final expectedSize = image.width * image.height * 3 ~/ 2;
     if (bytes.length != expectedSize) {
       print('! Byte length mismatch: got ${bytes.length}, expected $expectedSize');
       _isDetecting = false;
@@ -175,9 +193,9 @@ Future<void> _processCameraImage(CameraImage image) async {
     final inputImage = InputImage.fromBytes(
       bytes: bytes,
       metadata: InputImageMetadata(
-        rotation: imageRotation,
+        rotation: InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
         format: inputImageFormat,
-        bytesPerRow: image.planes[0].bytesPerRow, // Y plane stride
+        bytesPerRow: image.planes[0].bytesPerRow, // Use Y plane stride for Android, single plane stride for iOS
         size: Size(image.width.toDouble(), image.height.toDouble()),
       ),
     );
@@ -190,8 +208,8 @@ Future<void> _processCameraImage(CameraImage image) async {
         painter: PosePainter(
           pose,
           Size(image.width.toDouble(), image.height.toDouble()),
-          camera.lensDirection,
-          imageRotation,
+          _cameraController!.description.lensDirection,
+          InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
         ),
       );
       if (kDebugMode) print("Pose detected. Updating custom paint.");
