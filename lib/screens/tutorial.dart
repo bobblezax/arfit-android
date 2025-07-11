@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
 class TutorialScreen extends StatelessWidget {
   const TutorialScreen({super.key});
@@ -44,7 +45,12 @@ class TutorialScreen extends StatelessWidget {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
-                  // Play video logic here
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) =>
+                            const PushUpVideoScreen(videoId: 'IODxDxX7oi4')), // replace with curated video ID
+                  );
                 },
                 child: const Text('Play Video'),
                 style: ElevatedButton.styleFrom(
@@ -57,6 +63,53 @@ class TutorialScreen extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class PushUpVideoScreen extends StatefulWidget {
+  final String videoId;
+  const PushUpVideoScreen({super.key, required this.videoId});
+
+  @override
+  State<PushUpVideoScreen> createState() => _PushUpVideoScreenState();
+}
+
+class _PushUpVideoScreenState extends State<PushUpVideoScreen> {
+  late YoutubePlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = YoutubePlayerController(
+      initialVideoId: widget.videoId,
+      flags: const YoutubePlayerFlags(
+        autoPlay: true,
+        mute: false,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF000000),
+      appBar: AppBar(
+        title: Text('Push Up Tutorial', style: GoogleFonts.exo()),
+        backgroundColor: const Color(0xFF0E1216),
+      ),
+      body: Center(
+        child: YoutubePlayer(
+          controller: _controller,
+          showVideoProgressIndicator: true,
         ),
       ),
     );

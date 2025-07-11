@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AddWorkoutScreen extends StatefulWidget {
@@ -16,7 +17,6 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
   final setsController = TextEditingController();
 
   String selectedType = 'Warm up';
-
   final List<String> workoutTypes = ['Warm up', 'Main', 'Cool Down'];
 
   @override
@@ -53,7 +53,8 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
                 items: workoutTypes
                     .map((type) => DropdownMenuItem(
                           value: type,
-                          child: Text(type, style: GoogleFonts.exo(color: Colors.white)),
+                          child: Text(type,
+                              style: GoogleFonts.exo(color: Colors.white)),
                         ))
                     .toList(),
                 onChanged: (val) {
@@ -65,21 +66,28 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              _buildTextField('Reps', repsController, keyboardType: TextInputType.number),
+              _buildTextField('Reps', repsController,
+                  keyboardType: TextInputType.number),
               const SizedBox(height: 16),
-              _buildTextField('Weight (lbs)', weightController, keyboardType: TextInputType.number),
+              _buildTextField('Weight (lbs)', weightController,
+                  keyboardType: TextInputType.number),
               const SizedBox(height: 16),
-              _buildTextField('Rest Timer (seconds)', restController, keyboardType: TextInputType.number),
+              _buildTextField('Rest Timer (seconds)', restController,
+                  keyboardType: TextInputType.number),
               const SizedBox(height: 16),
-              _buildTextField('Sets', setsController, keyboardType: TextInputType.number),
+              _buildTextField('Sets', setsController,
+                  keyboardType: TextInputType.number),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    // TODO: Add workout creation logic
-                    Navigator.pop(context);
-                  },
+                  onPressed: _createWorkout,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                   child: const Text('Create Workout'),
                 ),
               ),
@@ -107,5 +115,41 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
         ),
       ),
     );
+  }
+
+  void _createWorkout() async {
+    final title = titleController.text.trim();
+    final reps = int.tryParse(repsController.text.trim()) ?? 0;
+    final weight = int.tryParse(weightController.text.trim()) ?? 0;
+    final rest = int.tryParse(restController.text.trim()) ?? 0;
+    final sets = int.tryParse(setsController.text.trim()) ?? 0;
+
+    if (title.isEmpty || reps <= 0 || sets <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in all required fields')),
+      );
+      return;
+    }
+
+    try {
+      final durationMinutes = (sets * rest / 60).toStringAsFixed(1);
+
+      await FirebaseFirestore.instance.collection('workouts').add({
+        'name': title,
+        'type': selectedType,
+        'reps': reps,
+        'weight': weight,
+        'rest': rest,
+        'sets': sets,
+        'duration': '$durationMinutes min',
+        'createdAt': Timestamp.now(),
+      });
+
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving workout: $e')),
+      );
+    }
   }
 }
