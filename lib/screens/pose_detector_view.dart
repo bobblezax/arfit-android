@@ -708,9 +708,8 @@ class PosePainter extends CustomPainter {
   final Pose pose;
   final Size imageSize;
   final CameraLensDirection cameraLensDirection;
-  final InputImageRotation imageRotation; // New: Pass image rotation
+  final InputImageRotation imageRotation;
 
-  // Update constructor to accept imageRotation
   PosePainter(this.pose, this.imageSize, this.cameraLensDirection, this.imageRotation);
 
   void _drawLine(Canvas canvas, Offset p1, Offset p2, Paint paint) {
@@ -719,45 +718,44 @@ class PosePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-      final paint = Paint()
-        ..shader = LinearGradient(
+    final paint = Paint()
+      ..shader = LinearGradient(
         colors: [Colors.blueAccent, Colors.purpleAccent],
-       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-        ..strokeWidth = 5.0
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke;
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..strokeWidth = 5.0
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
 
-      final pointPaint = Paint()
-        ..color = Colors.cyanAccent
-        ..strokeWidth = 10.0
-        ..style = PaintingStyle.fill;
+    final pointPaint = Paint()
+      ..color = Colors.cyanAccent
+      ..strokeWidth = 10.0
+      ..style = PaintingStyle.fill;
 
-    // Remove the temporary purple circle once the skeletal overlay is correct
-    // canvas.drawCircle(Offset(size.width / 2, size.height / 2), 30.0, Paint()..color = Colors.purple);
+    // Mirror x-coordinates for front-facing camera on iOS
+    final bool shouldMirror = cameraLensDirection == CameraLensDirection.front &&
+        defaultTargetPlatform == TargetPlatform.iOS;
 
-
-    // Determine the effective image dimensions after rotation for scaling
-    // ML Kit returns coordinates based on the *rotated* image that it processed.
-    // If the image was 480x640 and rotated 90deg, the ML Kit coordinates are relative to 640x480.
+    // Determine effective image dimensions after rotation
     double effectiveImageWidth = imageSize.width;
     double effectiveImageHeight = imageSize.height;
 
     if (imageRotation == InputImageRotation.rotation90deg ||
         imageRotation == InputImageRotation.rotation270deg) {
-      // Swap width and height if image was rotated by 90 or 270 degrees
       effectiveImageWidth = imageSize.height;
       effectiveImageHeight = imageSize.width;
     }
 
-
     // Map landmark points to screen coordinates
     final Map<PoseLandmarkType, Offset> points = {};
     pose.landmarks.forEach((type, landmark) {
-      // Scale based on the *effective* image dimensions
+      // Scale based on the effective image dimensions
       double x = landmark.x * size.width / effectiveImageWidth;
       double y = landmark.y * size.height / effectiveImageHeight;
 
-      // Adjust x-coordinate for front camera mirror effect
+      // Flip x-coordinate for front-facing camera on iOS
+      if (shouldMirror) {
+        x = size.width - x;
+      }
 
       points[type] = Offset(x, y);
     });
@@ -769,24 +767,19 @@ class PosePainter extends CustomPainter {
       [PoseLandmarkType.leftHip, PoseLandmarkType.rightHip],
       [PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip],
       [PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip],
-
       // Left Arm
       [PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow],
       [PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist],
-
       // Right Arm
       [PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow],
       [PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist],
-
       // Left Leg
       [PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee],
       [PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle],
-
       // Right Leg
       [PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee],
       [PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle],
-
-      // Face/Head (optional, but good for completeness)
+      // Face/Head
       [PoseLandmarkType.nose, PoseLandmarkType.leftEyeInner],
       [PoseLandmarkType.leftEyeInner, PoseLandmarkType.leftEye],
       [PoseLandmarkType.leftEye, PoseLandmarkType.leftEyeOuter],
@@ -795,11 +788,9 @@ class PosePainter extends CustomPainter {
       [PoseLandmarkType.rightEyeInner, PoseLandmarkType.rightEye],
       [PoseLandmarkType.rightEye, PoseLandmarkType.rightEyeOuter],
       [PoseLandmarkType.rightEyeOuter, PoseLandmarkType.rightEar],
-      // Connections from ear to shoulder for neck/upper body connection
       [PoseLandmarkType.leftEar, PoseLandmarkType.leftShoulder],
       [PoseLandmarkType.rightEar, PoseLandmarkType.rightShoulder],
-
-      // Feet connections
+      // Feet
       [PoseLandmarkType.leftAnkle, PoseLandmarkType.leftHeel],
       [PoseLandmarkType.leftHeel, PoseLandmarkType.leftFootIndex],
       [PoseLandmarkType.rightAnkle, PoseLandmarkType.rightHeel],
