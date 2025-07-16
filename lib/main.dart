@@ -2,12 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
-
 // Theme and services
 import 'theme/app_theme.dart';
-import 'widgets/auth_service.dart'; 
-
-
+import 'widgets/auth_service.dart';
 // Screens
 import 'screens/splash.dart';
 import 'screens/login.dart';
@@ -15,7 +12,7 @@ import 'screens/create_account.dart';
 import 'screens/create_account_step2.dart';
 import 'screens/dashboard.dart';
 import 'screens/home.dart';
-import 'screens/profile.dart'; 
+import 'screens/profile.dart';
 import 'screens/all_workouts.dart';
 import 'screens/add_workout.dart';
 import 'screens/calendar.dart';
@@ -27,10 +24,9 @@ import 'screens/tutorial.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(); // If using firebase_options.dart, consider DefaultFirebaseOptions.currentPlatform
+  await Firebase.initializeApp();
   runApp(const ArFitApp());
 }
-
 
 class ArFitApp extends StatelessWidget {
   const ArFitApp({super.key});
@@ -55,7 +51,7 @@ class ArFitApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/create-account': (context) => const CreateAccountScreen(),
           '/create-account-step2': (context) => const CreateAccountStepTwoScreen(),
-          '/home': (context) => const DashboardScreen(), // This is your main app screen
+          '/home': (context) => const DashboardScreen(), // Main screen after login
           '/profile': (context) => const ProfileScreen(),
           '/all-workouts': (context) => const AllWorkoutsScreen(),
           '/add-workout': (context) => const AddWorkoutScreen(),
@@ -63,12 +59,12 @@ class ArFitApp extends StatelessWidget {
           '/metrics': (context) => const MetricsScreen(),
           '/body-weight': (context) => const BodyWeightScreen(),
           '/calories': (context) => const CaloriesScreen(),
-          '/tutorial': (context) => const TutorialScreen(),
         },
-        // Optional: Better fallback for undefined routes
+        // Handles any undefined routes gracefully.
         onUnknownRoute: (settings) => MaterialPageRoute(
-          builder: (_) => const Scaffold(
-            body: Center(child: Text('404 - Page not found')),
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Error')),
+            body: const Center(child: Text('404 - Page not found')),
           ),
         ),
       ),

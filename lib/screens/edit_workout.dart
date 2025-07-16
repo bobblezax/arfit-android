@@ -1,30 +1,48 @@
-// lib/screens/add_workout.dart
+// lib/screens/edit_workout.dart
 
+import 'package:arfit_app/models/workout_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
-class AddWorkoutScreen extends StatefulWidget {
-  const AddWorkoutScreen({super.key});
+class EditWorkoutScreen extends StatefulWidget {
+  final Workout workout;
+
+  const EditWorkoutScreen({super.key, required this.workout});
 
   @override
-  State<AddWorkoutScreen> createState() => _AddWorkoutScreenState();
+  State<EditWorkoutScreen> createState() => _EditWorkoutScreenState();
 }
 
-class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
+class _EditWorkoutScreenState extends State<EditWorkoutScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _setsController = TextEditingController();
-  final _repsController = TextEditingController();
-  final _weightController = TextEditingController();
-  final _restTimeController = TextEditingController(text: '60'); // ✅ NEW
+  late TextEditingController _nameController;
+  late TextEditingController _setsController;
+  late TextEditingController _repsController;
+  late TextEditingController _weightController;
+  late TextEditingController _restTimeController;
   bool _isLoading = false;
 
-  String _workoutType = 'Strength';
+  late String _workoutType;
   final List<String> _workoutTypes = ['Strength', 'Cardio', 'HIIT', 'Mobility', 'Calisthenics'];
-  String _weightUnit = 'lbs';
-  bool _isBodyweight = false;
+  late String _weightUnit;
+  late bool _isBodyweight;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill all fields with the existing workout data
+    final w = widget.workout;
+    _nameController = TextEditingController(text: w.name);
+    _setsController = TextEditingController(text: w.sets.toString());
+    _repsController = TextEditingController(text: w.reps.toString());
+    _weightController = TextEditingController(text: w.weight.toString());
+    _restTimeController = TextEditingController(text: w.restTime.toString());
+    _workoutType = w.workoutType;
+    _weightUnit = w.weightUnit;
+    _isBodyweight = w.isBodyweight;
+  }
 
   @override
   void dispose() {
@@ -32,11 +50,11 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     _setsController.dispose();
     _repsController.dispose();
     _weightController.dispose();
-    _restTimeController.dispose(); // ✅ NEW
+    _restTimeController.dispose();
     super.dispose();
   }
 
-  Future<void> _saveWorkout() async {
+  Future<void> _updateWorkout() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
@@ -44,7 +62,7 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("User not logged in");
 
-      final newWorkoutData = {
+      final updatedData = {
         'name': _nameController.text,
         'workoutType': _workoutType,
         'sets': int.tryParse(_setsController.text) ?? 0,
@@ -52,18 +70,21 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
         'isBodyweight': _isBodyweight,
         'weight': _isBodyweight ? 0 : (int.tryParse(_weightController.text) ?? 0),
         'weightUnit': _isBodyweight ? '' : _weightUnit,
-        'restTime': int.tryParse(_restTimeController.text) ?? 60, // ✅ NEW
-        'createdAt': Timestamp.now(),
-        'lastOpened': Timestamp.now(),
-        'isFavourite': false,
-        'lastCompleted': null,
-        'durationInSeconds': 0,
+        'restTime': int.tryParse(_restTimeController.text) ?? 60,
       };
 
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('workouts').add(newWorkoutData);
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('workouts')
+          .doc(widget.workout.id) // Use the ID from the workout object
+          .update(updatedData);
+
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save workout: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update workout: $e')));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -71,15 +92,13 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ... (UI Code remains largely the same, but with the new Rest Time field added)
-    // Here is the full build method for clarity:
     final accent = const Color(0xFFF06500);
     final panelColor = const Color(0xFF0E1216);
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text('Create New Workout', style: GoogleFonts.exo()),
+        title: Text('Edit Workout', style: GoogleFonts.exo()),
         backgroundColor: panelColor,
       ),
       body: Padding(
@@ -111,7 +130,6 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                // ✅ NEW: Rest Time field
                 _buildTextFormField(controller: _restTimeController, labelText: 'Rest Time (seconds)', keyboardType: TextInputType.number),
                 const SizedBox(height: 10),
                 CheckboxListTile(
@@ -150,7 +168,7 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
                   ),
                 const SizedBox(height: 40),
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _saveWorkout,
+                  onPressed: _isLoading ? null : _updateWorkout,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: accent,
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -158,7 +176,7 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text('Save Workout', style: GoogleFonts.exo(fontSize: 18, fontWeight: FontWeight.bold)),
+                      : Text('Update Workout', style: GoogleFonts.exo(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
