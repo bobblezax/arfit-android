@@ -108,52 +108,84 @@ class _PoseDetectorViewState extends State<PoseDetectorView> with SingleTickerPr
     }
   }
 
-  Future<void> _processCameraImage(CameraImage image) async {
-    if (_isDetecting || !mounted) return;
-    _isDetecting = true;
-    try {
-      final WriteBuffer allBytes = WriteBuffer();
-      for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
-      }
-      final bytes = allBytes.done().buffer.asUint8List();
-      final inputImage = InputImage.fromBytes(
-        bytes: bytes,
-        metadata: InputImageMetadata(
-          size: Size(image.width.toDouble(), image.height.toDouble()),
-          rotation: InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
-          format: InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21,
-          bytesPerRow: image.planes[0].bytesPerRow,
-        ),
-      );
-      final poses = await _poseDetector.processImage(inputImage);
-      if (poses.isNotEmpty) {
-        final pose = poses.first;
-        if (pose.landmarks.length < 10) {
-          _customPaint = null;
-          _feedback = "Hold still. Pose unclear.";
-        } else {
-          _customPaint = CustomPaint(
-            painter: PosePainter(
-              pose,
-              Size(image.width.toDouble(), image.height.toDouble()),
-              _cameraController!.description.lensDirection,
-              InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
-            ),
-          );
-          _updateWorkoutState(pose);
-        }
-      } else {
+Future<void> _processCameraImage(CameraImage image) async {
+  if (_isDetecting || !mounted) return;
+  _isDetecting = true;
+  try {
+    // Log the image format for debugging
+    debugPrint("Camera image format: ${image.format.raw}");
+
+    // Convert YUV_420_888 to NV21
+    final Uint8List nv21Bytes = _convertYUV420ToNV21(image);
+
+    final inputImage = InputImage.fromBytes(
+      bytes: nv21Bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
+        format: InputImageFormat.nv21, // Explicitly set to NV21
+        bytesPerRow: image.planes[0].bytesPerRow,
+      ),
+    );
+
+    final poses = await _poseDetector.processImage(inputImage);
+    if (poses.isNotEmpty) {
+      final pose = poses.first;
+      if (pose.landmarks.length < 10) {
         _customPaint = null;
-        _feedback = "No pose detected. Adjust your position.";
+        _feedback = "Hold still. Pose unclear.";
+      } else {
+        _customPaint = CustomPaint(
+          painter: PosePainter(
+            pose,
+            Size(image.width.toDouble(), image.height.toDouble()),
+            _cameraController!.description.lensDirection,
+            InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg,
+          ),
+        );
+        _updateWorkoutState(pose);
       }
-      if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint("Error processing image: $e");
-    } finally {
-      _isDetecting = false;
+    } else {
+      _customPaint = null;
+      _feedback = "No pose detected. Adjust your position.";
+    }
+    if (mounted) setState(() {});
+  } catch (e) {
+    debugPrint("Error processing image: $e");
+  } finally {
+    _isDetecting = false;
+  }
+}
+
+// Helper function to convert YUV_420_888 to NV21
+Uint8List _convertYUV420ToNV21(CameraImage image) {
+  final int width = image.width;
+  final int height = image.height;
+  final int ySize = width * height;
+  final int uvSize = width * height ~/ 4; // NV21 has half width and height for UV planes
+  final Uint8List nv21 = Uint8List(ySize + uvSize * 2);
+
+  // Y plane
+  final yPlane = image.planes[0].bytes;
+  nv21.setRange(0, ySize, yPlane);
+
+  // UV planes (interleaved for NV21: V, U, V, U, ...)
+  final uPlane = image.planes[1].bytes;
+  final vPlane = image.planes[2].bytes;
+  final int uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
+  final int uvRowStride = image.planes[1].bytesPerRow;
+
+  int nv21Index = ySize;
+  for (int y = 0; y < height ~/ 2; y++) {
+    for (int x = 0; x < width ~/ 2; x++) {
+      final int uvIndex = y * uvRowStride + x * uvPixelStride;
+      nv21[nv21Index++] = vPlane[uvIndex]; // V
+      nv21[nv21Index++] = uPlane[uvIndex]; // U
     }
   }
+
+  return nv21;
+}
 
   void _updateWorkoutState(Pose pose) {
     if (_workoutCompleted) return;
@@ -512,14 +544,31 @@ class PosePainter extends CustomPainter {
 
     final bool shouldMirror = cameraLensDirection == CameraLensDirection.front && defaultTargetPlatform == TargetPlatform.iOS;
     
-    Offset _translate(double x, double y, Size size, Size imageSize) {
-      final double scaleX = size.width / imageSize.width;
-      final double scaleY = size.height / imageSize.height;
-      final double scale = min(scaleX, scaleY);
-      final double offsetX = (size.width - imageSize.width * scale) / 2;
-      final double offsetY = (size.height - imageSize.height * scale) / 2;
-      return Offset(x * scale + offsetX, y * scale + offsetY);
-    }
+Offset _translate(double x, double y, Size size, Size imageSize) {
+  double effectiveImageWidth = imageSize.width;
+  double effectiveImageHeight = imageSize.height;
+
+  // Adjust for rotation
+  if (imageRotation == InputImageRotation.rotation90deg || imageRotation == InputImageRotation.rotation270deg) {
+    effectiveImageWidth = imageSize.height;
+    effectiveImageHeight = imageSize.width;
+  }
+
+  final double scaleX = size.width / effectiveImageWidth;
+  final double scaleY = size.height / effectiveImageHeight;
+  final double scale = min(scaleX, scaleY);
+  final double offsetX = (size.width - effectiveImageWidth * scale) / 2;
+  final double offsetY = (size.height - effectiveImageHeight * scale) / 2;
+
+  double translatedX = x * scale + offsetX;
+  double translatedY = y * scale + offsetY;
+
+  if (shouldMirror) {
+    translatedX = size.width - translatedX;
+  }
+
+  return Offset(translatedX, translatedY);
+}
     
     final Map<PoseLandmarkType, Offset> points = {};
     pose.landmarks.forEach((type, landmark) {
