@@ -1,0 +1,9 @@
+curl_down
+curl_up
+press_down
+press_up
+pushup_down
+pushup_up
+squat_down
+squat_up
+standing

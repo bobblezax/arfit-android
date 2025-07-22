@@ -8,6 +8,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  tflite_flutter: ^0.11.0
   
   # UI & Utility Packages
   google_fonts: ^6.1.0
@@ -50,7 +51,9 @@ flutter:
   assets:
     - assets/logo/
     - assets/icons/
-    - assets/ # Also include the root assets folder for success.mp3
+    - assets/pose_classifier.tflite
+    - assets/pose_labels.txt
+    - assets/success.mp3 # Make sure to list your audio file explicitly too
 
   # Font declaration is correct
   fonts:
