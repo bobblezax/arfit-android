@@ -1,16 +1,7 @@
 # arfit_app
 
-A new Flutter project.
+**ARFit is an AI-powered fitness application that leverages augmented reality (AR) and machine learning to provide real-time posture correction during workouts. Designed to improve exercise form and reduce injury risk, ARFit enhances workout efficiency by giving users instant, visual feedback on their movements.
 
-## Getting Started
+The mobile app is developed using Flutter for a seamless cross-platform experience and utilizes Google ML Kit’s Pose Estimation API to track body joints through the device’s camera. Real-time AR overlays guide users through correct form and posture, creating an interactive and supportive workout environment..**<img width="2048" height="1146" alt="image" src="https://github.com/user-attachments/assets/19ef7750-2ec2-4c4d-8a2f-5ee184a2dbcc" />
 
-This project is a starting point for a Flutter application.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
